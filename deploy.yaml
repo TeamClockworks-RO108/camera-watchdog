@@ -1,0 +1,66 @@
+---
+- name: Deploy camera-watchdog.py watchdog using systemd timer
+  hosts: all
+  become: true
+
+  vars:
+    script_src: "./camera-watchdog.py"
+    script_dest: "/usr/bin/camera-watchdog.py"
+
+  tasks:
+    - name: Install camera-watchdog.py into /usr/bin
+      ansible.builtin.copy:
+        src: "{{ script_src }}"
+        dest: "{{ script_dest }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install systemd service unit
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/camera-watchdog.service"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Restart camera watchdog (check snapshot and restart crowsnest if needed)
+          After=multi-user.target
+          Wants=multi-user.target
+
+          [Service]
+          Type=oneshot
+          ExecStart={{ script_dest }}
+      notify: systemd daemon-reload
+
+    - name: Install systemd timer unit (every 5 minutes)
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/camera-watchdog.timer"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Run camera-watchdog.py watchdog every 5 minutes
+
+          [Timer]
+          OnBootSec=1min
+          OnUnitActiveSec=5min
+          AccuracySec=30s
+          Persistent=true
+          Unit=camera-watchdog.service
+
+          [Install]
+          WantedBy=timers.target
+      notify: systemd daemon-reload
+
+    - name: Ensure timer is enabled and started
+      ansible.builtin.systemd:
+        name: camera-watchdog.timer
+        enabled: true
+        state: started
+
+  handlers:
+    - name: systemd daemon-reload
+      ansible.builtin.systemd:
+        daemon_reload: true
